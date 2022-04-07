@@ -8,7 +8,7 @@ contract Market {
 
    uint256 private duringTimeRound;
    uint256 private multPriceSale; // Увеличение стоимости с каждым раундом = 100/103 + 4/1_000_000
-   uint256 private currentRoundId; // ID текущего раунда
+   
 
 
 // Стартуем ЯКОБЫ с трейд раунда
@@ -19,39 +19,60 @@ contract Market {
         uint256 volumeTradeETH; // Объем ETH в трейд раунде
         uint256 priceTokenSale; // Текущая стоимость токена
         uint256 supply;         // Объем текущего раунда
+        uint256 roundId;        // ID текущего раунда
     }
-    CurrentRound public CurrentRound;
+    CurrentRound public currentRound;
 
     struct Round {
         uint256 finishTime; // Время завершения раунда
-        uint256 totalSupply; 
+        //uint256 totalSupply; 
         uint256 price;
     }
     mapping (uint256 => Round) public rounds;
+    mapping (address => address) public referer;
     //первый раунд !!!!сейла!!!, но якобы уже был трейд раунд и натороговали на 1eth
     constructor(address _token_, uint duringTime){
         _token = _token_;
         duringTimeRound = duringTime;
+
+        // временно!!!!!!!!! ТИПА ПЕРВЫЙ ТРЕЙД РАУНД прошел 
+        currentRound = CurrentRound({
+            volumeTradeETH: 1 ether,
+            priceTokenSale: 1 ether / 100_000,
+            supply: 100_000 * (10 ** 18),
+            roundId:0
+        });
     }
 
-    function registr(address referer)external{
-
+    function registr(address _referer) external {
+        require(_referer != address(0x0),"ERROR: Referer is not valid"); 
+        referer[msg.sender] = _referer;
     } 
 
     function startSaleRound() external{
-        rounds[currentRoundId + 1] = Round({
+        rounds[currentRound.roundId + 1] = Round({
             finishTime: block.timestamp + duringTimeRound,
-            totalSupply: 
-            price: volumeTradeETH / currentPriceTokenSale;
+            price: (currentRound.priceTokenSale * 103/100) + 4000 gwei
         });
+
+        currentRound.roundId++;
+
+        currentRound = CurrentRound({
+            volumeTradeETH: 0,
+            priceTokenSale: 1 ether / 100_000 * (10 ** 18),
+            supply: 100_000 * (10 ** 18),
+            roundId: currentRound.roundId + 1
+        });
+
     } 
 
     function buyToken() external{
 
     } 
 
-    function startTradeRound() external{
-        volumeTradeETH += msg.value;
+    function startTradeRound() external payable{
+
+        currentRound.volumeTradeETH += msg.value;
     } 
     // выкуп токенов
     function redeemOrder() payable external{
