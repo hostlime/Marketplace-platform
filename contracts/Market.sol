@@ -20,6 +20,7 @@ contract Market {
         uint256 priceTokenSale; // Текущая стоимость токена
         uint256 supply;         // Объем текущего раунда
         uint256 roundId;        // ID текущего раунда
+        bool    isSale;         // Если сейл раунд то true
     }
     CurrentRound public currentRound;
 
@@ -40,7 +41,8 @@ contract Market {
             volumeTradeETH: 1 ether,
             priceTokenSale: 1 ether / 100_000,
             supply: 100_000 * (10 ** 18),
-            roundId:0
+            roundId:0,
+            isSale: true
         });
     }
 
@@ -60,8 +62,9 @@ contract Market {
         currentRound = CurrentRound({
             volumeTradeETH: 0,
             priceTokenSale: 1 ether / 100_000 * (10 ** 18),
-            supply: 100_000 * (10 ** 18),
-            roundId: currentRound.roundId + 1
+            supply: currentRound.volumeTradeETH / currentRound.priceTokenSale,
+            roundId: currentRound.roundId + 1,
+            isSale: true
         });
 
     } 
