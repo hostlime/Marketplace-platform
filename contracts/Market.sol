@@ -1,26 +1,50 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+
+contract MyTokenMarket is ERC20, AccessControl {
+
+    // Роль моста
+    bytes32 public constant MARKET_ROLE = keccak256("MARKET_ROLE");
+
+    //constructor() ERC20("MyTokenForBridge", "MTK") {}
+    constructor(string memory name, string memory symbol) ERC20(name, symbol) {
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _setupRole(MARKET_ROLE, msg.sender);
+        //_mint(msg.sender, 1000_000 * 10 ** decimals());
+    }
+
+    function mint(address to, uint256 amount) external onlyRole(MARKET_ROLE) {
+        _mint(to, amount);
+    }
+    function burn(address user, uint256 amount) external onlyRole(MARKET_ROLE) {
+        _burn(user, amount);
+    }
+}
 
 contract Market {
 
-   address private _token;
+   MyTokenMarket private _token;
 
    uint256 private duringTimeRound;
-   uint256 private multPriceSale; // Увеличение стоимости с каждым раундом = 100/103 + 4/1_000_000
+   uint256 private multPriceSale;       // Увеличение стоимости с каждым раундом = 100/103 + 4/1_000_000
    
-
+    uint256 public refBonusLevel1 = 5;        // Бонус реферала первого уровня
+    uint256 public refBonusLevel2 = 3;     // Бонус реферала второго уровня
 
 // Стартуем ЯКОБЫ с трейд раунда
 
     // трейд раун
-
+    enum RoundType {Sale, Trade}
     struct CurrentRound {
         uint256 volumeTradeETH; // Объем ETH в трейд раунде
         uint256 priceTokenSale; // Текущая стоимость токена
-        uint256 supply;         // Объем текущего раунда
-        uint256 roundId;        // ID текущего раунда
-        bool    isSale;         // Если сейл раунд то true
+        uint256 supply;         // Объем текущего раунда   ?????
+        uint256 roundId;        // ID текущего раунда ???????
+        uint256 finishTime;     // Время завершения раунда
+        RoundType round;        // Если сейл раунд то true
     }
     CurrentRound public currentRound;
 
@@ -32,17 +56,18 @@ contract Market {
     mapping (uint256 => Round) public rounds;
     mapping (address => address) public referer;
     //первый раунд !!!!сейла!!!, но якобы уже был трейд раунд и натороговали на 1eth
-    constructor(address _token_, uint duringTime){
+    constructor(MyTokenMarket _token_, uint duringTime){
         _token = _token_;
         duringTimeRound = duringTime;
 
         // временно!!!!!!!!! ТИПА ПЕРВЫЙ ТРЕЙД РАУНД прошел 
         currentRound = CurrentRound({
             volumeTradeETH: 1 ether,
-            priceTokenSale: 1 ether / 100_000,
-            supply: 100_000 * (10 ** 18),
+            priceTokenSale: 5825242718000,
+            supply: 0,
             roundId:0,
-            isSale: true
+            finishTime: block.timestamp,
+            round: RoundType.Trade
         });
     }
 
@@ -52,34 +77,61 @@ contract Market {
     } 
 
     function startSaleRound() external{
-        rounds[currentRound.roundId + 1] = Round({
-            finishTime: block.timestamp + duringTimeRound,
-            price: (currentRound.priceTokenSale * 103/100) + 4000 gwei
-        });
+        require(currentRound.round == RoundType.Trade,"Sale round has already started");
+        require(currentRound.finishTime < block.timestamp, "Trade round hasnt finished");
 
+        currentRound.round = RoundType.Sale;
+        // 0,000004 eth = 4000 gwei
+        // Price ETH = lastPrice*1,03+0,000004 = (lastPrice*103 + 0,000004*100)/100
+        currentRound.priceTokenSale = (currentRound.priceTokenSale * 103) / 100 + 4000 gwei;
+        currentRound.supply = currentRound.volumeTradeETH / currentRound.priceTokenSale;
+        currentRound.finishTime = block.timestamp + duringTimeRound;
         currentRound.roundId++;
 
-        currentRound = CurrentRound({
-            volumeTradeETH: 0,
-            priceTokenSale: 1 ether / 100_000 * (10 ** 18),
-            supply: currentRound.volumeTradeETH / currentRound.priceTokenSale,
-            roundId: currentRound.roundId + 1,
-            isSale: true
-        });
+        _token.mint(address(this), currentRound.supply);
+    }
 
-    } 
+    // Покупка токенов в период сейла
+    function buyTokenSale() external payable{
+        require(currentRound.round == RoundType.Sale,"Sale round hasn't started yet");
+        require(currentRound.finishTime > block.timestamp, "Sale round closed");
 
-    function buyToken() external{
+        // Рассчитываем количество купленных токенов
+        uint256 mountBuyToken = msg.value / currentRound.priceTokenSale;
+        // Переводим токуены
+        _token.transfer(msg.sender, mountBuyToken);
+        
+        // Проверяем наличие реферала первого уровня
+        // если есть то выплачиваем
+        address payable ref = payable (referer[msg.sender]);
+        if(address(0x0) != ref){
+            sendCall(ref, (msg.value * refBonusLevel1) / 100);
 
+            ref = payable (referer[ref]);
+            if(address(0x0) != ref) sendCall(ref, (msg.value * refBonusLevel2) / 100);
+        } 
     } 
 
     function startTradeRound() external payable{
-
-        currentRound.volumeTradeETH += msg.value;
+        require(currentRound.round == RoundType.Sale,"Trade round has already started");
+        uint256 tokenBalance = _token.balanceOf(address(this));
+        
+        if(tokenBalance > 0){
+            if(currentRound.finishTime > block.timestamp)revert("Sale round hasn't finished");
+            // Время раунда сейла закончилось и поэтому сжигаем нераспроданные токены
+            _token.burn(address(this), tokenBalance);
+        }
+        
+        currentRound.round = RoundType.Trade;
+        currentRound.volumeTradeETH = 0; 
+        currentRound.finishTime = block.timestamp + duringTimeRound;
+        currentRound.roundId++;
     } 
+
     // выкуп токенов
     function redeemOrder() payable external{
 
+        currentRound.volumeTradeETH += msg.value;
     } 
 
     function removeOrder() external{
@@ -87,9 +139,16 @@ contract Market {
     } 
 
     function addOrder() external{
-
+        
     } 
 
+    // call in combination with re-entrancy guard is the recommended method to use after December 2019.
+    function sendCall(address payable _to, uint256 _value) public payable {
+        // Call returns a boolean value indicating success or failure.
+        // This is the current recommended method to use.
+        (bool sent,  ) = _to.call{value: _value}("");
+        require(sent, "Failed to send Ether");
+    }
 }
 
 /*
