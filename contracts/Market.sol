@@ -42,25 +42,21 @@ contract Market is ReentrancyGuard, AccessControl{
     struct CurrentRound {
         uint256 volumeTradeETH; // Объем ETH в трейд раунде
         uint256 priceTokenSale; // Текущая стоимость токена
-        uint256 supply;         // Объем текущего раунда   ?????
-        uint256 roundId;        // ID текущего раунда ???????
+        //uint256 supply;         // Объем текущего раунда   ?????
+        //uint256 roundId;        // ID текущего раунда ???????
         uint256 finishTime;     // Время завершения раунда
+        uint256 numOrder;       // Количество ордеров в раунде ТРЕЙД
         RoundType round;        // Если сейл раунд то true
     }
     CurrentRound public currentRound;
 
-    struct Round {
-        uint256 finishTime; // Время завершения раунда
-        //uint256 totalSupply; 
-        uint256 price;
-    }
+
     struct Order {
         uint256 mount;  // Количество
         uint256 price;  // Стоисмость в eth
         address owner;  // Владелец
     }
-    Order [] public ordersTrade;
-    mapping (uint256 => Round) public rounds;
+    mapping (uint256 => Order) public ordersTrade;
     mapping (address => address) public referer;
 
     //первый раунд !!!!сейла!!!, но якобы уже был трейд раунд и натороговали на 1eth
@@ -73,35 +69,41 @@ contract Market is ReentrancyGuard, AccessControl{
         currentRound = CurrentRound({
             volumeTradeETH: 1 ether,
             priceTokenSale: 5825242718000,
-            supply: 0,
-            roundId:0,
             finishTime: block.timestamp,
-            round: RoundType.Trade
+            round: RoundType.Trade,
+            numOrder: 0
         });
     }
 
     function registr(address _referer) external {
         require(_referer != address(0x0),"ERROR: Referer is not valid"); 
+        require(referer[_referer] != address(0x0),"ERROR: Referer has not been registered before"); 
         referer[msg.sender] = _referer;
-    } 
+    }
 
-    function startSaleRound() external{
+    function startSaleRound() external {
         require(currentRound.round == RoundType.Trade,"Sale round has already started");
         require(currentRound.finishTime < block.timestamp, "Trade round hasnt finished");
+
+        // Возвращаем все ордера
+        for(uint256 i = currentRound.numOrder - 1; i >= 0; i--){
+            if(ordersTrade[i].mount > 0){
+               _token.transferFrom(address(this), ordersTrade[i].owner, ordersTrade[i].mount);
+            }
+        }
+        currentRound.numOrder = 0;
 
         currentRound.round = RoundType.Sale;
         // 0,000004 eth = 4000 gwei
         // Price ETH = lastPrice*1,03+0,000004 = (lastPrice*103 + 0,000004*100)/100
         currentRound.priceTokenSale = (currentRound.priceTokenSale * 103) / 100 + 4000 gwei;
-        currentRound.supply = currentRound.volumeTradeETH / currentRound.priceTokenSale;
         currentRound.finishTime = block.timestamp + duringTimeRound;
-        currentRound.roundId++;
 
-        _token.mint(address(this), currentRound.supply);
+        _token.mint(address(this), currentRound.volumeTradeETH / currentRound.priceTokenSale);
     }
 
     // Покупка токенов в период сейла
-    function buyTokenSale() external payable{
+    function buyTokenSale() external payable {
         require(currentRound.round == RoundType.Sale,"Sale round hasn't started yet");
         require(currentRound.finishTime > block.timestamp, "Sale round closed");
 
@@ -121,7 +123,7 @@ contract Market is ReentrancyGuard, AccessControl{
         } 
     } 
 
-    function startTradeRound() external payable{
+    function startTradeRound() external payable {
         require(currentRound.round == RoundType.Sale,"Trade round has already started");
         uint256 tokenBalance = _token.balanceOf(address(this));
         
@@ -134,31 +136,66 @@ contract Market is ReentrancyGuard, AccessControl{
         currentRound.round = RoundType.Trade;
         currentRound.volumeTradeETH = 0; 
         currentRound.finishTime = block.timestamp + duringTimeRound;
-        currentRound.roundId++;
     } 
 
     // выкуп токенов
-    function redeemOrder() payable external{
+    function redeemOrder(uint256 _idOrder) payable external {
+        require(currentRound.round == RoundType.Trade,"Redeem order is available only in the trade round");
+        require(currentRound.finishTime > block.timestamp, "Trade round closed");
+        require(_idOrder < currentRound.numOrder, "Such order id does not exist");
 
+        Order storage _order = ordersTrade[_idOrder];
+        
+        uint256 _mountTokenForEth = msg.value / _order.price;
+        require(_order.mount >= _mountTokenForEth, "You can not buy more than the order");
+
+        _token.transferFrom(address(this), msg.sender, _mountTokenForEth);
+        _order.mount -= _mountTokenForEth;
         currentRound.volumeTradeETH += msg.value;
+
+        // Выплачиваем продавцу
+        uint256 mountEthBonus = (_order.price * 5) / 100;   // 5%
+        _sendCall(payable(_order.owner), _order.price - mountEthBonus);
+
+        // Выплачиваем рефералам по 2,5%
+        address payable ref = payable (referer[_order.owner]);
+        if(address(0x0) != ref){
+            mountEthBonus /= 2;  // 2.5%
+            _sendCall(ref, mountEthBonus);
+
+            ref = payable (referer[ref]);
+            if(address(0x0) != ref) _sendCall(ref, mountEthBonus);
+        }
+
     } 
 
-    function removeOrder() external{
+    // Отмена ордера
+    function removeOrder(uint256 _idOrder) external {
+        require(currentRound.round == RoundType.Trade,"Remove order is available only in the trade round");
+        require(currentRound.finishTime > block.timestamp, "Trade round closed");
 
+        Order storage _order = ordersTrade[_idOrder];
+        require(_idOrder < currentRound.numOrder, "Such order id does not exist");
+        require(_order.owner == msg.sender, "Only owner can remove order");
+
+        if(_order.mount > 0){
+             _token.transferFrom(address(this), _order.owner, _order.mount);
+            _order.mount = 0;
+        }
     } 
 
-    function addOrder(uint256 _mount, uint256 _price) external{
+    function addOrder(uint256 _mount, uint256 _price) external {
         require(currentRound.round == RoundType.Trade,"Add Order is available only in the trade round");
         require(currentRound.finishTime > block.timestamp, "Trade round closed");
 
-        ordersTrade.push(
-            Order({
-                mount: _mount,  // Количество
-                price: _price,  // Стоисмость в eth
-                owner: msg.sender  // Владелец
-            })
-        );
-    } 
+        _token.transferFrom(msg.sender, address(this), _mount);
+        // Добавляем в массив ордеров
+        ordersTrade[currentRound.numOrder++] = Order({
+            mount: _mount,  // Количество
+            price: _price,  // Стоисмость в eth
+            owner: msg.sender  // Владелец
+        });
+    }
 
     // call in combination with re-entrancy guard is the recommended method to use after December 2019.
     function _sendCall(address payable _to, uint256 _value) private {
