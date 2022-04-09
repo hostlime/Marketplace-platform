@@ -24,7 +24,8 @@ contract MyTokenMarket is ERC20, AccessControl {
     }
 }
 
-contract Market {
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+contract Market is ReentrancyGuard, AccessControl{
 
    MyTokenMarket private _token;
 
@@ -53,12 +54,20 @@ contract Market {
         //uint256 totalSupply; 
         uint256 price;
     }
+    struct Order {
+        uint256 mount;  // Количество
+        uint256 price;  // Стоисмость в eth
+        address owner;  // Владелец
+    }
+    Order [] public ordersTrade;
     mapping (uint256 => Round) public rounds;
     mapping (address => address) public referer;
+
     //первый раунд !!!!сейла!!!, но якобы уже был трейд раунд и натороговали на 1eth
     constructor(MyTokenMarket _token_, uint duringTime){
         _token = _token_;
         duringTimeRound = duringTime;
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
 
         // временно!!!!!!!!! ТИПА ПЕРВЫЙ ТРЕЙД РАУНД прошел 
         currentRound = CurrentRound({
@@ -105,10 +114,10 @@ contract Market {
         // если есть то выплачиваем
         address payable ref = payable (referer[msg.sender]);
         if(address(0x0) != ref){
-            sendCall(ref, (msg.value * refBonusLevel1) / 100);
+            _sendCall(ref, (msg.value * refBonusLevel1) / 100);
 
             ref = payable (referer[ref]);
-            if(address(0x0) != ref) sendCall(ref, (msg.value * refBonusLevel2) / 100);
+            if(address(0x0) != ref) _sendCall(ref, (msg.value * refBonusLevel2) / 100);
         } 
     } 
 
@@ -138,12 +147,21 @@ contract Market {
 
     } 
 
-    function addOrder() external{
-        
+    function addOrder(uint256 _mount, uint256 _price) external{
+        require(currentRound.round == RoundType.Trade,"Add Order is available only in the trade round");
+        require(currentRound.finishTime > block.timestamp, "Trade round closed");
+
+        ordersTrade.push(
+            Order({
+                mount: _mount,  // Количество
+                price: _price,  // Стоисмость в eth
+                owner: msg.sender  // Владелец
+            })
+        );
     } 
 
     // call in combination with re-entrancy guard is the recommended method to use after December 2019.
-    function sendCall(address payable _to, uint256 _value) public payable {
+    function _sendCall(address payable _to, uint256 _value) private {
         // Call returns a boolean value indicating success or failure.
         // This is the current recommended method to use.
         (bool sent,  ) = _to.call{value: _value}("");
