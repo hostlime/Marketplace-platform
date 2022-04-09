@@ -103,7 +103,7 @@ contract Market is ReentrancyGuard, AccessControl{
     }
 
     // Покупка токенов в период сейла
-    function buyTokenSale() external payable {
+    function buyTokenSale() external payable nonReentrant {
         require(currentRound.round == RoundType.Sale,"Sale round hasn't started yet");
         require(currentRound.finishTime > block.timestamp, "Sale round closed");
 
@@ -139,7 +139,7 @@ contract Market is ReentrancyGuard, AccessControl{
     } 
 
     // выкуп токенов
-    function redeemOrder(uint256 _idOrder) payable external {
+    function redeemOrder(uint256 _idOrder) payable external nonReentrant {
         require(currentRound.round == RoundType.Trade,"Redeem order is available only in the trade round");
         require(currentRound.finishTime > block.timestamp, "Trade round closed");
         require(_idOrder < currentRound.numOrder, "Such order id does not exist");
