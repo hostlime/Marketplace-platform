@@ -112,6 +112,7 @@ contract Market is ReentrancyGuard, AccessControl {
 
         // Проверяем наличие реферала первого уровня
         // если есть то выплачиваем
+        console.log(address(this).balance);
         address payable ref = payable(referer[msg.sender]);
         if (address(0x0) != ref) {
             _sendCall(ref, (msg.value * refBonusLevel1) / 100);
@@ -238,8 +239,9 @@ contract Market is ReentrancyGuard, AccessControl {
     function _sendCall(address payable _to, uint256 _value) private {
         // Call returns a boolean value indicating success or failure.
         // This is the current recommended method to use.
+        console.log(_to);
+        console.log(_value);
         (bool sent, ) = _to.call{value: _value}("");
-        require(sent, "Failed to send Ether");
     }
 }
 
