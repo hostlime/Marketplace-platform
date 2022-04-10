@@ -4,7 +4,6 @@ pragma solidity ^0.8.4;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "./Token.sol";
-import "hardhat/console.sol";
 
 contract Market is ReentrancyGuard, AccessControl {
     MyTokenMarket private _token;
@@ -50,7 +49,7 @@ contract Market is ReentrancyGuard, AccessControl {
         currentRound.finishTime = block.timestamp;
         currentRound.round = RoundType.Trade;
         // регистрируем первого реферала чтобы пользователи дальше могли регистрироваться и указывать в качестве рефера создателя контракт
-        referer[msg.sender] = address(this);
+        referer[msg.sender] = msg.sender;
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
@@ -60,6 +59,8 @@ contract Market is ReentrancyGuard, AccessControl {
             referer[_referer] != address(0x0),
             "ERROR: Referer hasn't been registered before"
         );
+        require(_referer != msg.sender, "ERROR: you can't enter your address");
+
         referer[msg.sender] = _referer;
     }
 
@@ -67,10 +68,6 @@ contract Market is ReentrancyGuard, AccessControl {
         require(
             currentRound.round == RoundType.Trade,
             "Sale round has already started"
-        );
-        require(
-            currentRound.finishTime < block.timestamp,
-            "Trade round hasnt finished"
         );
 
         // Возвращаем все ордера
@@ -112,14 +109,14 @@ contract Market is ReentrancyGuard, AccessControl {
 
         // Проверяем наличие реферала первого уровня
         // если есть то выплачиваем
-        console.log(address(this).balance);
         address payable ref = payable(referer[msg.sender]);
         if (address(0x0) != ref) {
             _sendCall(ref, (msg.value * refBonusLevel1) / 100);
-
-            ref = payable(referer[ref]);
-            if (address(0x0) != ref)
-                _sendCall(ref, (msg.value * refBonusLevel2) / 100);
+            // У рефера всегда есть рефер
+            _sendCall(
+                payable(referer[ref]),
+                (msg.value * refBonusLevel2) / 100
+            );
         }
     }
 
@@ -165,13 +162,16 @@ contract Market is ReentrancyGuard, AccessControl {
             "You can not buy more than the order"
         );
 
-        _token.transferFrom(address(this), msg.sender, _mountTokenForEth);
+        _token.transfer(msg.sender, _mountTokenForEth);
         _order.mount -= _mountTokenForEth;
         currentRound.volumeTradeETH += msg.value;
 
-        // Выплачиваем продавцу
-        uint256 mountEthBonus = (_order.price * 5) / 100; // 5%
-        _sendCall(payable(_order.owner), _order.price - mountEthBonus);
+        // Выплачиваем продавцу, но вычитаем mountEthBonus
+        uint256 mountEthBonus = (_mountTokenForEth * _order.price * 5) / 100; // 5%
+        _sendCall(
+            payable(_order.owner),
+            _mountTokenForEth * _order.price - mountEthBonus
+        );
 
         // Выплачиваем рефералам по 2,5%
         address payable ref = payable(referer[_order.owner]);
@@ -180,7 +180,7 @@ contract Market is ReentrancyGuard, AccessControl {
             _sendCall(ref, mountEthBonus);
 
             ref = payable(referer[ref]);
-            if (address(0x0) != ref) _sendCall(ref, mountEthBonus);
+            _sendCall(ref, mountEthBonus);
         }
     }
 
@@ -203,7 +203,7 @@ contract Market is ReentrancyGuard, AccessControl {
         require(_order.owner == msg.sender, "Only owner can remove order");
 
         if (_order.mount > 0) {
-            _token.transferFrom(address(this), _order.owner, _order.mount);
+            _token.transfer(_order.owner, _order.mount);
             _order.mount = 0;
         }
     }
@@ -239,59 +239,6 @@ contract Market is ReentrancyGuard, AccessControl {
     function _sendCall(address payable _to, uint256 _value) private {
         // Call returns a boolean value indicating success or failure.
         // This is the current recommended method to use.
-        console.log(_to);
-        console.log(_value);
         (bool sent, ) = _to.call{value: _value}("");
     }
 }
-
-/*
-ТЗ площадка для продажи ACDM 
-
--Написать смарт контракт ACDMPlatform
--Написать полноценные тесты к контракту
--Написать скрипт деплоя
--Задеплоить в тестовую сеть
--Написать таск на на основные методы
--Верифицировать контракт
-
-Есть 2 раунда «Торговля» и «Продажа», которые следуют друг за другом, начиная с раунда продажи.
-Каждый раунд длится 3 дня.
-
-Основные понятия:
-Раунд «Sale» - В данном раунде пользователь может купить токены ACDM по фиксируемой цене у платформы за ETH.
-Раунд «Trade» - в данном раунде пользователи могут выкупать друг у друга токены ACDM за ETH.
-Реферальная программа — реферальная программа имеет два уровня, пользователи получают реварды в ETH.
-
-Описание раунда «Sale»:
-Цена токена с каждым раундом растет и рассчитывается по формуле (смотри excel файл). 
-Количество выпущенных токенов в каждом Sale раунде разное и зависит от общего объема торгов в раунде «Trade». 
-Раунд может закончиться досрочно если все токены были распроданы. По окончанию раунда не распроданные токены сжигаются. 
-Самый первый раунд продает токенны на сумму 1ETH (100 000 ACDM)
-Пример расчета:
-объем торгов в trade раунде = 0,5 ETH (общая сумма ETH на которую пользователи наторговали в рамках одного trade раунд)
-0,5 / 0,0000187 = 26737.96. (0,0000187 = цена токена в текущем раунде)
-следовательно в Sale раунде будет доступно к продаже 26737.96 токенов ACDM.
-
-Описание раунда «Trade»:
-user_1 выставляет ордер на продажу ACDM токенов за определенную сумму в ETH. 
-User_2 выкупает токены за ETH. Ордер может быть выкуплен не полностью. 
-Также ордер можно отозвать и пользователю вернутся его токены, которые еще не были проданы. 
-Полученные ETH сразу отправляются пользователю в их кошелек metamask. 
-По окончанию раунда все открытые ордера закрываются и оставшиеся токены отправляются их владельцам.
-
-Описание Реферальной программы:
-При регистрации пользователь указывает своего реферера (Реферер должен быть уже зарегистрирован на платформе).
-При покупке в Sale раунде токенов ACDM, рефереру_1 отправится 5% от его покупки, рефереру_2 отправится 3%, 
-сама платформа получит 92% в случае отсутствия рефереров всё получает платформа.
-При покупке в Trade раунде пользователь, который выставил ордер на продажу ACDM токенов 
-получит 95% ETH и по 2,5% получат рефереры, в случае их отсутствия платформа забирает эти проценты себе.
-
-Price ETH = lastPrice*1,03+0,000004
-Пример расчета цены токена: 0,0000100*1,03+0,000004 = 0,0000143
-
-Ссылки: 
-https://drive.google.com/file/d/1gj3yihfvJl1WXPJtegO4N5j6q-Rd9ZMn/view?usp=sharing
-Уязвимости в безопасности  https://russianblogs.com/article/857220099/
-ReentrancyGuard https://docs.openzeppelin.com/contracts/4.x/api/security#ReentrancyGuard
-*/
