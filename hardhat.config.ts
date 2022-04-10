@@ -8,6 +8,38 @@ import "hardhat-gas-reporter";
 import "solidity-coverage";
 import "@nomiclabs/hardhat-ethers";
 
+
+
+
+task("starttraderound", "startTradeRound")
+  .addParam("address", "The contract address on")
+  .setAction(async (taskArgs, hre) => {
+    const contract = await hre.ethers.getContractAt("Market", taskArgs.address)
+    await contract.startTradeRound();
+  });
+
+task("startsaleround", "startSaleRound")
+  .addParam("address", "The contract address on")
+  .setAction(async (taskArgs, hre) => {
+    const contract = await hre.ethers.getContractAt("Market", taskArgs.address)
+    await contract.startSaleRound();
+  });
+
+task("registration", "registration")
+  .addParam("address", "The contract address on")
+  .addParam("referer", "referer")
+  .setAction(async (taskArgs, hre) => {
+    const contract = await hre.ethers.getContractAt("Market", taskArgs.address)
+    await contract.registration(taskArgs.referer);
+  });
+task("removeorder", "removeOrder")
+  .addParam("address", "The contract address on")
+  .addParam("id", "_idOrder")
+  .setAction(async (taskArgs, hre) => {
+    const contract = await hre.ethers.getContractAt("Market", taskArgs.address)
+    await contract.registration(taskArgs.id);
+  });
+
 dotenv.config();
 
 // This is a sample Hardhat task. To learn how to create your own go to
