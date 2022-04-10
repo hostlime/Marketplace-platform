@@ -74,14 +74,9 @@ contract Market is ReentrancyGuard, AccessControl {
         );
 
         // Возвращаем все ордера
-        for (uint256 i = currentRound.numOrder; i > 0; i--) {
-            console.log(i);
+        for (uint256 i = 0; i < currentRound.numOrder; i++) {
             if (ordersTrade[i].mount > 0) {
-                _token.transferFrom(
-                    address(this),
-                    ordersTrade[i].owner,
-                    ordersTrade[i].mount
-                );
+                _token.transfer(ordersTrade[i].owner, ordersTrade[i].mount);
             }
         }
         currentRound.numOrder = 0;

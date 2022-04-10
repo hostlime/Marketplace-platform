@@ -106,20 +106,62 @@ describe.only("Market platform", function () {
         "Sale round has already started"
       )
   });
-  it.only("Checking function startSaleRound() after tradeRaund", async () => {
+  it.only("Checking function startSaleRound() after tradeRound", async () => {
 
     // запускаем раунд сейла
     await market.connect(user1).startSaleRound()
 
-    let tx = await market.connect(user1).buyTokenSale({ value: buyUser })
+    let mountTokensForbuyUser = (buyUser).div(startPriceTokenSale);
+
+    // Покупатели покупают
+    await market.connect(user1).buyTokenSale({ value: buyUser })
+    await market.connect(user2).buyTokenSale({ value: buyUser })
+    await market.connect(user3).buyTokenSale({ value: buyUser })
+
+    // проверяем балансы покупателей и маркета
     expect(await token.balanceOf(user1.address))
-      .to.be.equal((buyUser).div(startPriceTokenSale))
+      .to.be.equal(mountTokensForbuyUser)
+    expect(await token.balanceOf(user2.address))
+      .to.be.equal(mountTokensForbuyUser)
+    expect(await token.balanceOf(user3.address))
+      .to.be.equal(mountTokensForbuyUser)
+    // баланс токенов которые остались на маркете
     expect(await token.balanceOf(market.address))
-      .to.be.equal(((startVolumeTradeETH).div(startPriceTokenSale)).sub((buyUser).div(startPriceTokenSale)))
+      .to.be.equal(mountTokensForbuyUser)
 
+    // Смещаем время на 3дня
+    await ethers.provider.send("evm_increaseTime", [duringTimeRound])
+    await ethers.provider.send("evm_mine", [])
 
-    console.log(await token.balanceOf(market.address))
-    console.log(await token.balanceOf(user1.address))
+    // Запускаем трейд раунд
+    await market.connect(user1).startTradeRound()
+    // Высталяем ордера на продажу, но предарительно апрувим
+    await token.connect(user1).approve(market.address, mountTokensForbuyUser)
+    await token.connect(user3).approve(market.address, mountTokensForbuyUser)
+    await market.connect(user1).addOrder(mountTokensForbuyUser, startPriceTokenSale.toNumber() + 1)
+    await market.connect(user3).addOrder(mountTokensForbuyUser, startPriceTokenSale.toNumber() + 2)
+    // Смещаем время на 3дня
+    await ethers.provider.send("evm_increaseTime", [duringTimeRound])
+    await ethers.provider.send("evm_mine", [])
+
+    // Снова запускаем раунд сейла
+    await market.connect(user1).startSaleRound()
+
+    // Проверяем все переменные
+    let currentRound = await market.connect(user1).currentRound()
+    expect(currentRound['volumeTradeETH']).to.be.equal((mountTokensForbuyUser).div(startPriceTokenSale))
+    let newprice = (startPriceTokenSale.toNumber() * 103) / 100 + 4 * 10 ** 12;
+    expect(currentRound['priceTokenSale']).to.be.equal(newprice)
+    expect(currentRound['numOrder']).to.be.equal(0)
+    expect(currentRound['round']).to.be.equal(0)
+
+    // Проверяем время
+    const txTime = await getTimestampBlock(currentRound.blockNumber)
+    expect(currentRound.finishTime).to.be.equal(txTime + duringTimeRound)
+
+    // Проверяем сколько токенов заминтилось
+    //expect(await token.connect(user1)
+    //  .balanceOf(market.address)).to.be.equal((startVolumeTradeETH).div(startPriceTokenSale))
 
     /*
         await expect(() => tx)
