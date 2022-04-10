@@ -5,21 +5,26 @@
 // Runtime Environment's members available in the global scope.
 import { ethers } from "hardhat";
 
+const startVolumeTradeETH = ethers.utils.parseEther("1");  // recommended 1 ether = 1000000000000000000 Wei
+const startPriceTokenSale = ethers.utils.parseEther("0.00001"); // recommended 0.00001 ether = 10000000000000 Wei
+const duringTimeRound = 3 * 24 * 60 * 60; // три дня
+
 async function main() {
-  // Hardhat always runs the compile task when running scripts with its command
-  // line interface.
-  //
-  // If this script is run directly using `node` you may want to call compile
-  // manually to make sure everything is compiled
-  // await hre.run('compile');
 
-  // We get the contract to deploy
-  const Greeter = await ethers.getContractFactory("Greeter");
-  const greeter = await Greeter.deploy("Hello, Hardhat!");
+  const MyTokenMarket = await ethers.getContractFactory("MyTokenMarket");
+  const token = await MyTokenMarket.deploy("MyTokenMarket", "ACDM") as any;
+  await token.deployed();
+  console.log("Token deployed to:", token.address);
 
-  await greeter.deployed();
+  const Market = await ethers.getContractFactory("Market");
+  const market = await Market.deploy(
+    token.address,
+    duringTimeRound,
+    startPriceTokenSale,
+    startVolumeTradeETH) as any;
+  await market.deployed();
+  console.log("Token deployed to:", market.address);
 
-  console.log("Greeter deployed to:", greeter.address);
 }
 
 // We recommend this pattern to be able to use async/await everywhere

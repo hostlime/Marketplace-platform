@@ -239,6 +239,7 @@ contract Market is ReentrancyGuard, AccessControl {
     function _sendCall(address payable _to, uint256 _value) private {
         // Call returns a boolean value indicating success or failure.
         // This is the current recommended method to use.
-        (bool sent, ) = _to.call{value: _value}("");
+        (bool success, ) = _to.call{value: _value}("");
+        require(success, "Transfer failed.");
     }
 }
