@@ -2,10 +2,11 @@
 pragma solidity ^0.8.4;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
 import "./Token.sol";
 import "hardhat/console.sol";
 
-contract Market is ReentrancyGuard {
+contract Market is ReentrancyGuard, AccessControl {
     MyTokenMarket private _token;
 
     uint256 private duringTimeRound;
@@ -13,7 +14,7 @@ contract Market is ReentrancyGuard {
 
     uint256 public refBonusLevel1 = 5; // Бонус реферала первого уровня
     uint256 public refBonusLevel2 = 3; // Бонус реферала второго уровня
-
+    uint256 private priceNextRoundSale; // Цена токена следующего раунда сейла
     enum RoundType {
         Sale,
         Trade
@@ -36,25 +37,28 @@ contract Market is ReentrancyGuard {
     mapping(address => address) public referer;
 
     //первый раунд !!!!сейла!!!, но якобы уже был трейд раунд и натороговали на 1eth
-    constructor(MyTokenMarket _token_, uint256 duringTime) {
+    constructor(
+        MyTokenMarket _token_,
+        uint256 duringTime,
+        uint256 _priceTokenSale,
+        uint256 _volumeTradeETH
+    ) {
         _token = _token_;
         duringTimeRound = duringTime;
-
-        // временно!!!!!!!!! ТИПА ПЕРВЫЙ ТРЕЙД РАУНД прошел
-        currentRound = CurrentRound({
-            volumeTradeETH: 1 ether,
-            priceTokenSale: 0.00001 ether, //(((0.00001 ether) - (4000 gwei)) * 100)/103, //5825242718000,
-            finishTime: block.timestamp,
-            round: RoundType.Trade,
-            numOrder: 0
-        });
+        priceNextRoundSale = _priceTokenSale; // recommended 1 ether = 1000000000000000000 Wei
+        currentRound.volumeTradeETH = _volumeTradeETH; // recommended 0.00001 ether = 10000000000000 Wei
+        currentRound.finishTime = block.timestamp;
+        currentRound.round = RoundType.Trade;
+        // регистрируем первого реферала чтобы пользователи дальше могли регистрироваться и указывать в качестве рефера создателя контракт
+        referer[msg.sender] = address(this);
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
-    function registr(address _referer) external {
+    function registration(address _referer) external {
         require(_referer != address(0x0), "ERROR: Referer is not valid");
         require(
             referer[_referer] != address(0x0),
-            "ERROR: Referer has not been registered before"
+            "ERROR: Referer hasn't been registered before"
         );
         referer[msg.sender] = _referer;
     }
@@ -85,7 +89,8 @@ contract Market is ReentrancyGuard {
         currentRound.round = RoundType.Sale;
         // 0,000004 eth = 4000 gwei
         // Price ETH = lastPrice*1,03+0,000004 = (lastPrice*103 + 0,000004*100)/100
-        currentRound.priceTokenSale =
+        currentRound.priceTokenSale = priceNextRoundSale;
+        priceNextRoundSale =
             (currentRound.priceTokenSale * 103) /
             100 +
             4000 gwei;
@@ -224,6 +229,14 @@ contract Market is ReentrancyGuard {
             price: _price, // Стоисмость в eth
             owner: msg.sender // Владелец
         });
+    }
+
+    function withdrawAll(address payable _user)
+        external
+        payable
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _sendCall(_user, address(this).balance);
     }
 
     // call in combination with re-entrancy guard is the recommended method to use after December 2019.
