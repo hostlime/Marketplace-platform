@@ -3,6 +3,7 @@
 //
 // When running the script with `npx hardhat run <script>` you'll find the Hardhat
 // Runtime Environment's members available in the global scope.
+import { fs } from "fs";
 import { ethers } from "hardhat";
 
 const startVolumeTradeETH = ethers.utils.parseEther("1");  // recommended 1 ether = 1000000000000000000 Wei
@@ -26,7 +27,24 @@ async function main() {
   console.log("Token deployed to:", market.address);
 
 }
+function saveFrontFiles(contracts) {
+  const contractDir = path.join(__dirname, '/..', 'front/contracts')
 
+  if (!fs.existSync(contractDir)) {
+    fs.mkdirSync(contractDir)
+  }
+  Object.entries(contracts).forEach(() => {
+    const [name, contract] = contract_item
+
+    if (contract) {
+      fs.writeFileSync(
+        path.join(contractDir, '/', name + '-contract-address.json'),
+        JSON.stringify({ [name]: contract.address }, undefined, 2)
+
+      )
+    }
+  })
+}
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.
 main().catch((error) => {
