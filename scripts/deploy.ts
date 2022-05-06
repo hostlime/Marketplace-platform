@@ -3,8 +3,12 @@
 //
 // When running the script with `npx hardhat run <script>` you'll find the Hardhat
 // Runtime Environment's members available in the global scope.
-import { fs } from "fs";
+//import { fs } from "fs";
+//import { path } from "path";
+import * as path from 'path';
+import * as fs from 'fs';
 import { ethers } from "hardhat";
+import { Market__factory } from "../typechain";
 
 const startVolumeTradeETH = ethers.utils.parseEther("1");  // recommended 1 ether = 1000000000000000000 Wei
 const startPriceTokenSale = ethers.utils.parseEther("0.00001"); // recommended 0.00001 ether = 10000000000000 Wei
@@ -26,23 +30,29 @@ async function main() {
   await market.deployed();
   console.log("Token deployed to:", market.address);
 
+  saveFrontFiles({
+    market
+  })
 }
-function saveFrontFiles(contracts) {
+function saveFrontFiles(contracts: any) {
   const contractDir = path.join(__dirname, '/..', 'front/contracts')
 
-  if (!fs.existSync(contractDir)) {
+  if (!fs.existsSync(contractDir)) {
     fs.mkdirSync(contractDir)
   }
+  console.log(contracts)
   Object.entries(contracts).forEach(() => {
-    const [name, contract] = contract_item
 
-    if (contract) {
-      fs.writeFileSync(
-        path.join(contractDir, '/', name + '-contract-address.json'),
-        JSON.stringify({ [name]: contract.address }, undefined, 2)
-
-      )
-    }
+    /* const [name, contract] = contract_item
+ 
+     if (contract) {
+       fs.writeFileSync(
+         path.join(contractDir, '/', name + '-contract-address.json'),
+         JSON.stringify({ [name]: contract.address }, undefined, 2)
+ 
+       )
+       
+     }*/
   })
 }
 // We recommend this pattern to be able to use async/await everywhere
